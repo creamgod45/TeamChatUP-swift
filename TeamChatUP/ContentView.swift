@@ -10,51 +10,70 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @StateObject private var authManager = PKCEAuthManager.shared
+    @State private var selectedConversation: Conversation?
 
     var body: some View {
+        Group {
+            if authManager.isAuthenticated {
+                mainView
+            } else {
+                LoginView()
+            }
+        }
+        .alert("授權已過期", isPresented: $authManager.showTokenExpiredAlert) {
+            Button("重新登入", role: .none) {
+                Task {
+                    await authManager.handleTokenExpiration(shouldRelogin: true)
+                }
+            }
+            Button("取消", role: .cancel) {
+                Task {
+                    await authManager.handleTokenExpiration(shouldRelogin: false)
+                }
+            }
+        } message: {
+            Text("您的登入憑證已過期，需要重新登入才能繼續使用。")
+        }
+    }
+    
+    private var mainView: some View {
         NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+            ChatRoomListView(selectedConversation: $selectedConversation)
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        Menu {
+                            if let user = authManager.currentUser {
+                                Text(user.name)
+                                Text(user.email!)
+                                    .font(.caption)
+                                Divider()
+                            }
+                            
+                            Button(role: .destructive) {
+                                Task {
+                                    await authManager.logout()
+                                }
+                            } label: {
+                                Label("登出", systemImage: "rectangle.portrait.and.arrow.right")
+                            }
+                        } label: {
+                            Label("帳號", systemImage: "person.circle")
+                        }
                     }
                 }
-                .onDelete(perform: deleteItems)
-            }
 #if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250)
 #endif
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
         } detail: {
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+            if let conversation = selectedConversation {
+                ChatDetailView(conversation: conversation)
+            } else {
+                ContentUnavailableView(
+                    "選擇聊天室",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("從左側選擇或新增一個聊天室開始聊天")
+                )
             }
         }
     }
@@ -62,5 +81,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: [ChatRoom.self, Message.self], inMemory: true)
 }

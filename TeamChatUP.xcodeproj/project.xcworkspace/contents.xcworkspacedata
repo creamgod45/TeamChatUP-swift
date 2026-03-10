@@ -4,4 +4,10 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:SoundManager.swift">
+   </FileRef>
+   <FileRef
+      location = "group:WebSocketManager.swift">
+   </FileRef>
 </Workspace>
