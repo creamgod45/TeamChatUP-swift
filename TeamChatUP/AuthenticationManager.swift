@@ -8,13 +8,14 @@
 import Foundation
 import Combine
 import AuthenticationServices
+import Observation
 
-@MainActor
-class AuthenticationManager: ObservableObject {
+@Observable @MainActor
+class AuthenticationManager {
     static let shared = AuthenticationManager()
     
-    @Published var isAuthenticated = false
-    @Published var currentUser: User?
+    var isAuthenticated = false
+    var currentUser: User?
     
     private init() {
         // Check if token exists in keychain

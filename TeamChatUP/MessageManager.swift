@@ -8,28 +8,81 @@
 import Foundation
 import SwiftUI
 import Combine
+import Observation
 
-@MainActor
-final class MessageManager: ObservableObject {
-    @Published var messages: [MessageResponse] = []
-    @Published var isLoading = false
-    @Published var isSending = false
-    @Published var errorMessage: String?
-    @Published var currentPage = 1
-    @Published var hasMorePages = true
-    @Published var typingUsers: Set<Int> = []
+@Observable @MainActor
+final class MessageManager {
+    var messages: [MessageResponse] = []
+    var isLoading = false
+    var isSending = false
+    var errorMessage: String?
+    var currentPage = 1
+    var hasMorePages = true
+    var typingUsers: [Int: String] = [:]
+    
+    var typingIndicatorText: String? {
+        guard !typingUsers.isEmpty else { return nil }
+        let names = typingUsers.values.sorted()
+        if names.count == 1 {
+            return "\(names[0]) 正在輸入中..."
+        } else if names.count == 2 {
+            return "\(names[0]) 和 \(names[1]) 正在輸入中..."
+        } else {
+            return "\(names[0]) 等 \(names.count) 人正在輸入中..."
+        }
+    }
     
     private var conversationId: Int
     private var messageIds = Set<Int>()
     private var typingTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     
+    // 記錄每個使用者上次播放輸入音效的時間，用於冷卻重複播放
+    private var lastTypingSoundTime: [Int: Date] = [:]
+    // 記錄每個使用者上次收到輸入訊號的時間，用於自動清理超時狀態
+    private var lastTypingEventTime: [Int: Date] = [:]
+    // 記錄每個使用者上次收到訊息的時間，用於避免訊息與輸入音效重疊
+    private var lastMessageReceivedTime: [Int: Date] = [:]
+    // 定期清理超時輸入狀態的計時器
+    private var statusCleanupTimer: Timer?
+    
     init(conversationId: Int) {
         self.conversationId = conversationId
         setupWebSocketListener()
+        startStatusCleanupTimer()
         
         // 訂閱對話頻道以接收即時訊息
         WebSocketManager.shared.subscribeToConversation(conversationId)
+    }
+    
+    private func startStatusCleanupTimer() {
+        statusCleanupTimer?.invalidate()
+        statusCleanupTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.cleanupExpiredTypingStatus()
+            }
+        }
+    }
+    
+    private func cleanupExpiredTypingStatus() {
+        let now = Date()
+        let timeout: TimeInterval = 6.0 // 如果 6 秒沒收到訊號，視為停止輸入
+        
+        var usersToRemove: [Int] = []
+        for (userId, lastTime) in lastTypingEventTime {
+            if now.timeIntervalSince(lastTime) > timeout {
+                usersToRemove.append(userId)
+            }
+        }
+        
+        for userId in usersToRemove {
+            if typingUsers.keys.contains(userId) {
+                AppLogger.shared.debug("⏱️ 使用者 \(userId) 輸入超時，自動從列表移除")
+                typingUsers.removeValue(forKey: userId)
+            }
+            lastTypingEventTime.removeValue(forKey: userId)
+        }
     }
     
     private func setupWebSocketListener() {
@@ -46,22 +99,54 @@ final class MessageManager: ObservableObject {
         case .newMessage(let message):
             if message.conversationId == conversationId {
                 addReceivedMessage(message)
+                
+                let now = Date()
+                lastMessageReceivedTime[message.user.id] = now
+                
+                // 收到訊息後，通常對方也停止輸入了，清除相關狀態
+                typingUsers.removeValue(forKey: message.user.id)
+                lastTypingEventTime.removeValue(forKey: message.user.id)
+                // 同時將打字聲冷卻設為現在，防止剛收到訊息又立刻播打字聲
+                lastTypingSoundTime[message.user.id] = now
             }
             
         case .typing(let typingEvent):
-            if typingEvent.conversationId == conversationId {
-                if typingEvent.isTyping {
-                    // 只在新增使用者時播放音效（避免重複播放）
-                    let isNewTypingUser = !typingUsers.contains(typingEvent.userId)
-                    typingUsers.insert(typingEvent.userId)
-
-                    // 播放 typing 音效
-                    if isNewTypingUser {
-                        SoundManager.shared.playTypingSound()
-                    }
-                } else {
-                    typingUsers.remove(typingEvent.userId)
+            guard typingEvent.conversationId == conversationId else { return }
+            
+            // 🛑 核心修復：忽略自己的輸入訊號，只處理其他人的
+            let currentUserId = PKCEAuthManager.shared.currentUser?.id ?? 0
+            guard typingEvent.userId != currentUserId else { return }
+            
+            if typingEvent.isTyping {
+                let now = Date()
+                
+                // 🛑 核心修復：如果最近 1.5 秒內才收到這個人的訊息，忽略這個打字聲
+                if let lastMsgTime = lastMessageReceivedTime[typingEvent.userId],
+                   now.timeIntervalSince(lastMsgTime) < 1.5 {
+                    AppLogger.shared.debug("🔇 忽略殘留打字聲 (剛收到使用者的訊息)")
+                    return
                 }
+                
+                lastTypingEventTime[typingEvent.userId] = now
+                let isNewTyping = !typingUsers.keys.contains(typingEvent.userId)
+                
+                // 檢查上次播放聲音的時間，如果超過 8 秒，允許再次播放
+                let lastSoundTime = lastTypingSoundTime[typingEvent.userId] ?? .distantPast
+                let shouldRepeatSound = now.timeIntervalSince(lastSoundTime) > 8.0
+                
+                if isNewTyping || shouldRepeatSound {
+                    AppLogger.shared.debug("🎵 \(isNewTyping ? "開始輸入" : "持續輸入中")，準備播放音效...")
+                    SoundManager.shared.playTypingSound()
+                    lastTypingSoundTime[typingEvent.userId] = now
+                    
+                    if isNewTyping {
+                        typingUsers[typingEvent.userId] = typingEvent.userName ?? "未知使用者"
+                    }
+                }
+            } else {
+                typingUsers.removeValue(forKey: typingEvent.userId)
+                lastTypingEventTime.removeValue(forKey: typingEvent.userId)
+                lastTypingSoundTime.removeValue(forKey: typingEvent.userId)
             }
             
         case .messageRead(let readEvent):

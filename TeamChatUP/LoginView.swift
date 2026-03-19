@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct LoginView: View {
-    @StateObject private var pkceAuthManager = PKCEAuthManager.shared
+    @State private var pkceAuthManager = PKCEAuthManager.shared
     @State private var showManualCodeEntry = false
     @State private var loginMethod: LoginMethod = .automatic
     
@@ -48,7 +48,7 @@ struct LoginView: View {
                     .padding()
                     .background(Color.accentColor)
                     .foregroundStyle(.white)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                 }
                 .disabled(pkceAuthManager.isLoading)
                 
@@ -64,7 +64,7 @@ struct LoginView: View {
                     .padding()
                     .background(Color.secondary.opacity(0.2))
                     .foregroundStyle(.primary)
-                    .cornerRadius(12)
+                    .clipShape(.rect(cornerRadius: 12))
                 }
                 .disabled(pkceAuthManager.isLoading)
             }
@@ -95,7 +95,7 @@ struct LoginView: View {
 
 struct ManualCodeEntryView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var pkceAuthManager = PKCEAuthManager.shared
+    @State private var pkceAuthManager = PKCEAuthManager.shared
     @State private var authorizationCode = ""
     @State private var isSubmitting = false
     @State private var hasOpenedBrowser = false
@@ -124,13 +124,13 @@ struct ManualCodeEntryView: View {
                         .padding()
                         .background(Color.accentColor)
                         .foregroundStyle(.white)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
                     .disabled(pkceAuthManager.isLoading)
                 }
                 .padding()
                 .background(Color.secondary.opacity(0.1))
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 
                 // 輸入授權碼
                 VStack(alignment: .leading, spacing: 12) {
@@ -166,13 +166,13 @@ struct ManualCodeEntryView: View {
                         .padding()
                         .background(authorizationCode.isEmpty ? Color.gray : Color.accentColor)
                         .foregroundStyle(.white)
-                        .cornerRadius(12)
+                        .clipShape(.rect(cornerRadius: 12))
                     }
                     .disabled(authorizationCode.isEmpty || isSubmitting)
                 }
                 .padding()
                 .background(Color.secondary.opacity(0.1))
-                .cornerRadius(12)
+                .clipShape(.rect(cornerRadius: 12))
                 
                 if let error = pkceAuthManager.errorMessage {
                     Text(error)

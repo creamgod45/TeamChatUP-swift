@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct UserListView: View {
-    @StateObject private var userManager = UserManager()
+    @State private var userManager = UserManager()
     @Binding var selectedUserIds: Set<Int>
     let selectionMode: SelectionMode
     @Environment(\.dismiss) private var dismiss
@@ -191,7 +191,7 @@ struct SearchBar: View {
 #elseif os(macOS)
         .background(Color(nsColor: .controlBackgroundColor))
 #endif
-        .cornerRadius(10)
+        .clipShape(.rect(cornerRadius: 10))
         .padding(.horizontal)
         .padding(.vertical, 8)
     }

@@ -9,13 +9,13 @@ import SwiftUI
 
 struct ChatDetailView: View {
     let conversation: Conversation
-    @StateObject private var messageManager: MessageManager
+    @State private var messageManager: MessageManager
     @State private var messageText = ""
     @State private var showingError = false
     
     init(conversation: Conversation) {
         self.conversation = conversation
-        _messageManager = StateObject(wrappedValue: MessageManager(conversationId: conversation.id))
+        _messageManager = State(wrappedValue: MessageManager(conversationId: conversation.id))
     }
     
     var body: some View {
@@ -27,10 +27,24 @@ struct ChatDetailView: View {
                 messageListView
             }
             
+            if let typingText = messageManager.typingIndicatorText {
+                HStack {
+                    Text(typingText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .italic()
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                    Spacer()
+                }
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            
             Divider()
             
             messageInputView
         }
+        .animation(.default, value: messageManager.typingUsers)
         .navigationTitle(conversationTitle)
         .task {
             await messageManager.loadMessages(refresh: true)
@@ -110,12 +124,23 @@ struct ChatDetailView: View {
 #else
                 .background(Color(.systemGray6))
 #endif
-                .cornerRadius(8)
+                .clipShape(.rect(cornerRadius: 8))
                 .lineLimit(1...5)
                 .onChange(of: messageText) { _, _ in
                     messageManager.sendTypingIndicator()
                 }
-            
+
+            // 🔊 測試按鈕 - 用於診斷音效系統
+            Button {
+                print("🔥 手動觸發音效測試")
+                SoundManager.shared.playTypingSound()
+            } label: {
+                Image(systemName: "speaker.wave.2.fill")
+                    .foregroundStyle(.orange)
+                    .padding(8)
+            }
+            .buttonStyle(.plain)
+
             Button {
                 sendMessage()
             } label: {
@@ -123,7 +148,7 @@ struct ChatDetailView: View {
                     .foregroundStyle(.white)
                     .padding(8)
                     .background(messageText.isEmpty ? Color.gray : Color.accentColor)
-                    .cornerRadius(8)
+                    .clipShape(.rect(cornerRadius: 8))
             }
             .disabled(messageText.isEmpty || messageManager.isSending)
             .buttonStyle(.plain)
@@ -179,7 +204,7 @@ struct MessageBubbleView: View {
                     .background(isCurrentUser ? Color.accentColor : Color(.systemGray6))
 #endif
                     .foregroundStyle(isCurrentUser ? .white : .primary)
-                    .cornerRadius(16)
+                    .clipShape(.rect(cornerRadius: 16))
                 
                 Text(message.createdAt, format: .dateTime.hour().minute())
                     .font(.caption2)

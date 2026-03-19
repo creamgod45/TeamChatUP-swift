@@ -27,8 +27,8 @@ struct TeamChatUPApp: App {
 }
 
 struct RootView: View {
-    @StateObject private var authManager = PKCEAuthManager.shared
-    @StateObject private var webSocketManager = WebSocketManager.shared
+    @State private var authManager = PKCEAuthManager.shared
+    @State private var webSocketManager = WebSocketManager.shared
     
     var body: some View {
         Group {
@@ -39,10 +39,16 @@ struct RootView: View {
             }
         }
         .onOpenURL { url in
+            AppLogger.shared.info("🔗 收到系統 URL: \(url.absoluteString)")
+            AppLogger.shared.debug("🔍 URL Scheme: \(url.scheme ?? "none")")
+            
             if url.scheme == "teamchatup" {
+                AppLogger.shared.info("✅ 識別為 teamchatup scheme，開始處理回調")
                 Task {
                     await authManager.handleCallback(url: url)
                 }
+            } else {
+                AppLogger.shared.warning("⚠️ 收到非預期的 URL Scheme: \(url.scheme ?? "none")")
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
@@ -67,7 +73,7 @@ struct RootView: View {
 }
 
 struct MainTabView: View {
-    @StateObject private var authManager = PKCEAuthManager.shared
+    @State private var authManager = PKCEAuthManager.shared
     
     var body: some View {
         TabView {
@@ -90,7 +96,7 @@ struct MainTabView: View {
 }
 
 struct ProfileView: View {
-    @StateObject private var authManager = PKCEAuthManager.shared
+    @State private var authManager = PKCEAuthManager.shared
     
     var body: some View {
         NavigationView {

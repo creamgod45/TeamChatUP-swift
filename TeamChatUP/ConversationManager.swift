@@ -8,16 +8,17 @@
 import Foundation
 import SwiftUI
 import Combine
+import Observation
 
-@MainActor
-final class ConversationManager: ObservableObject {
+@Observable @MainActor
+final class ConversationManager {
     static let shared = ConversationManager()
     
-    @Published var conversations: [Conversation] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var currentPage = 1
-    @Published var hasMorePages = true
+    var conversations: [Conversation] = []
+    var isLoading = false
+    var errorMessage: String?
+    var currentPage = 1
+    var hasMorePages = true
     
     private var isRefreshing = false
     

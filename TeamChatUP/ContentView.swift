@@ -10,7 +10,7 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @StateObject private var authManager = PKCEAuthManager.shared
+    @State private var authManager = PKCEAuthManager.shared
     @State private var selectedConversation: Conversation?
 
     var body: some View {

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct DevicesView: View {
-    @StateObject private var authManager = PKCEAuthManager.shared
+    @State private var authManager = PKCEAuthManager.shared
     @State private var devices: [Device] = []
     @State private var isLoading = false
     @State private var errorMessage: String?

@@ -8,12 +8,14 @@
 import AVFoundation
 
 @MainActor
-final class SoundManager {
+final class SoundManager: NSObject, AVAudioPlayerDelegate {
     static let shared = SoundManager()
     
-    private var audioPlayer: AVAudioPlayer?
+    // 使用 Set 來持有正在播放的 players，避免被自動釋放
+    private var activePlayers: Set<AVAudioPlayer> = []
     
-    private init() {
+    private override init() {
+        super.init()
         configureAudioSession()
     }
     
@@ -23,44 +25,48 @@ final class SoundManager {
             try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("Failed to configure audio session: \(error)")
+            AppLogger.shared.error("無法配置音訊會話", error: error)
         }
         #endif
     }
     
     func playMessageSound() {
-        guard let soundURL = Bundle.main.url(forResource: "tethys", withExtension: "mp3") else {
-            print("Sound file not found: tethys.mp3")
-            return
-        }
-
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-            AppLogger.shared.debug("🔊 播放新訊息音效")
-        } catch {
-            print("Failed to play sound: \(error)")
-            AppLogger.shared.error("❌ 播放新訊息音效失敗: \(error)")
-        }
+        playSound(named: "tethys", extension: "mp3", volume: 1.0, label: "新訊息")
     }
 
     func playTypingSound() {
-        guard let soundURL = Bundle.main.url(forResource: "typing", withExtension: "wav") else {
-            print("Sound file not found: typing.wav")
-            AppLogger.shared.warning("⚠️ 找不到 typing.wav 音效檔案")
+        // 輸入音效稍微調高一點點到 0.5
+        playSound(named: "typing", extension: "wav", volume: 0.5, label: "輸入中")
+    }
+    
+    private func playSound(named name: String, extension ext: String, volume: Float, label: String) {
+        guard let soundURL = Bundle.main.url(forResource: name, withExtension: ext) else {
+            AppLogger.shared.error("❌ 找不到音效檔案: \(name).\(ext)")
             return
         }
 
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
-            audioPlayer?.volume = 0.3 // 降低音量避免太吵
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-            AppLogger.shared.debug("⌨️ 播放輸入中音效")
+            let player = try AVAudioPlayer(contentsOf: soundURL)
+            player.delegate = self
+            player.volume = volume
+            player.prepareToPlay()
+            
+            if player.play() {
+                activePlayers.insert(player)
+                AppLogger.shared.debug("🔊 正在播放\(label)音效 (\(name).\(ext))")
+            } else {
+                AppLogger.shared.error("❌ 播放\(label)音效失敗")
+            }
         } catch {
-            print("Failed to play typing sound: \(error)")
-            AppLogger.shared.error("❌ 播放輸入音效失敗: \(error)")
+            AppLogger.shared.error("❌ 初始化\(label)音效失敗", error: error)
+        }
+    }
+    
+    // MARK: - AVAudioPlayerDelegate
+    
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            activePlayers.remove(player)
         }
     }
 }

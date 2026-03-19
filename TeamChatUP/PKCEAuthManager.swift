@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import Observation
 
 #if canImport(UIKit)
 import UIKit
@@ -40,15 +41,15 @@ enum AuthError: Error, LocalizedError {
     }
 }
 
-@MainActor
-final class PKCEAuthManager: ObservableObject {
+@Observable @MainActor
+final class PKCEAuthManager {
     static let shared = PKCEAuthManager()
 
-    @Published var isAuthenticated = false
-    @Published var currentUser: User?
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var showTokenExpiredAlert = false
+    var isAuthenticated = false
+    var currentUser: User?
+    var isLoading = false
+    var errorMessage: String?
+    var showTokenExpiredAlert = false
 
     private let keychainManager = KeychainManager.shared
     private let apiClient = APIClient.shared

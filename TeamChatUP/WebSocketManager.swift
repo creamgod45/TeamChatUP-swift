@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import Observation
 
 enum WebSocketEvent: Codable {
     case newMessage(MessageResponse)
@@ -74,11 +75,13 @@ enum WebSocketEvent: Codable {
 
 struct TypingEvent: Codable {
     let userId: Int
+    let userName: String?
     let conversationId: Int
     let isTyping: Bool
     
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
+        case userName = "user_name"
         case conversationId = "conversation_id"
         case isTyping = "is_typing"
     }
@@ -106,12 +109,12 @@ struct MessageReadEvent: Codable {
 
 // MARK: - Pusher WebSocket Manager
 
-@MainActor
-final class WebSocketManager: NSObject, ObservableObject {
+@Observable @MainActor
+final class WebSocketManager: NSObject {
     static let shared = WebSocketManager()
 
-    @Published var isConnected = false
-    @Published var connectionError: String?
+    var isConnected = false
+    var connectionError: String?
     private var pingTimer: Timer?
 
     private var webSocketTask: URLSessionWebSocketTask?
@@ -164,7 +167,7 @@ final class WebSocketManager: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
 
-        AppLogger.shared.info("�� 連接 WebSocket: \(urlString)")
+        AppLogger.shared.info("🌐 連接 WebSocket: \(urlString)")
 
         webSocketTask = urlSession?.webSocketTask(with: request)
         webSocketTask?.resume()
@@ -183,7 +186,7 @@ final class WebSocketManager: NSObject, ObservableObject {
         stopHeartbeat()
         reconnectAttempts = 0
 
-        AppLogger.shared.info("�� WebSocket 已斷線")
+        AppLogger.shared.info("🔌 WebSocket 已斷線")
     }
 
     // MARK: - Channel Subscription
@@ -216,7 +219,7 @@ final class WebSocketManager: NSObject, ObservableObject {
                 try await sendMessage(subscribeMessage)
                 subscribedChannels.insert(channelName)
 
-                AppLogger.shared.info("�� 訂閱頻道: \(channelName)")
+                AppLogger.shared.info("📡 訂閱頻道: \(channelName)")
             } catch {
                 AppLogger.shared.error("訂閱頻道失敗: \(channelName)", error: error)
             }
@@ -304,14 +307,13 @@ final class WebSocketManager: NSObject, ObservableObject {
                 return
             }
 
-            AppLogger.shared.debug("�� 收到事件: \(event)")
+            AppLogger.shared.debug("🔍 收到事件: \(event)")
             if let dataValue = json["data"] {
-                AppLogger.shared.debug("�� 事件資料內容: \(dataValue)")
+                AppLogger.shared.debug("📦 事件資料內容: \(dataValue)")
             }
             if let channel = json["channel"] as? String {
                 AppLogger.shared.debug("📺 事件頻道: \(channel)")
             }
-
 
             switch event {
             case "pusher:connection_established":
@@ -406,7 +408,7 @@ final class WebSocketManager: NSObject, ObservableObject {
                 SoundManager.shared.playMessageSound()
             }
 
-            AppLogger.shared.info("�� 收到新訊息: \(eventData.message.content)")
+            AppLogger.shared.info("📩 收到新訊息: \(eventData.message.content)")
 
         } catch {
             AppLogger.shared.error("解析訊息事件失敗", error: error)
@@ -428,8 +430,7 @@ final class WebSocketManager: NSObject, ObservableObject {
 
         do {
             let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-
+            // 因為 TypingEvent 已經定義了 CodingKeys，不需要也不應該使用 convertFromSnakeCase
             let typingEvent = try decoder.decode(TypingEvent.self, from: data)
 
             eventPublisher.send(.typing(typingEvent))
@@ -438,6 +439,9 @@ final class WebSocketManager: NSObject, ObservableObject {
 
         } catch {
             AppLogger.shared.error("解析輸入中事件失敗", error: error)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                AppLogger.shared.debug("原始 JSON 內容: \(jsonString)")
+            }
         }
     }
 
@@ -458,9 +462,10 @@ final class WebSocketManager: NSObject, ObservableObject {
 
         AppLogger.shared.warning("⚠️ WebSocket 斷線，\(delay) 秒後重連 (嘗試 \(reconnectAttempts)/\(maxReconnectAttempts))")
 
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
-            Task { @MainActor [weak self] in
-                self?.connect()
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.connect()
             }
         }
     }
@@ -490,7 +495,6 @@ final class WebSocketManager: NSObject, ObservableObject {
         }
     }
 
-    
     // MARK: - Heartbeat
 
     private func startHeartbeat() {
@@ -498,17 +502,18 @@ final class WebSocketManager: NSObject, ObservableObject {
         
         // Pusher protocol typical heartbeat interval is 30 seconds
         pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
             Task { @MainActor in
-                await self?.sendPing()
+                await self.sendPing()
             }
         }
-        AppLogger.shared.debug("�� WebSocket 心跳計時器已啟動")
+        AppLogger.shared.debug("💓 WebSocket 心跳計時器已啟動")
     }
 
     private func stopHeartbeat() {
         pingTimer?.invalidate()
         pingTimer = nil
-        AppLogger.shared.debug("�� WebSocket 心跳計時器已停止")
+        AppLogger.shared.debug("💓 WebSocket 心跳計時器已停止")
     }
 
     private func sendPing() async {
@@ -520,7 +525,7 @@ final class WebSocketManager: NSObject, ObservableObject {
                 "data": [:]
             ]
             try await sendMessage(pingMessage)
-            AppLogger.shared.debug("�� 發送 WebSocket Ping")
+            AppLogger.shared.debug("💓 發送 WebSocket Ping")
         } catch {
             AppLogger.shared.error("❌ 發送 WebSocket Ping 失敗", error: error)
         }

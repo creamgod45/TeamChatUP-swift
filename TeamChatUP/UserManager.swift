@@ -7,13 +7,14 @@
 
 import Foundation
 import Combine
+import Observation
 
-@MainActor
-final class UserManager: ObservableObject {
-    @Published var users: [User] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var searchQuery = ""
+@Observable @MainActor
+final class UserManager {
+    var users: [User] = []
+    var isLoading = false
+    var errorMessage: String?
+    var searchQuery = ""
     
     private var allUsers: [User] = []
     private var currentPage = 1

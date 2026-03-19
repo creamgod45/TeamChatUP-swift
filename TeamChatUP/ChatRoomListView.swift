@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ChatRoomListView: View {
-    @StateObject private var conversationManager = ConversationManager.shared
+    @State private var conversationManager = ConversationManager.shared
     @Binding var selectedConversation: Conversation?
     @State private var showingAddConversation = false
     @State private var showingError = false
@@ -127,7 +127,7 @@ struct ConversationRowView: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.accentColor)
-                        .cornerRadius(10)
+                        .clipShape(.rect(cornerRadius: 10))
                 }
             }
             
@@ -142,7 +142,7 @@ struct ConversationRowView: View {
 
 struct AddConversationView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var conversationManager = ConversationManager.shared
+    @State private var conversationManager = ConversationManager.shared
     @State private var conversationType: ConversationType = .direct
     @State private var groupName = ""
     @State private var selectedUserIds: Set<Int> = []

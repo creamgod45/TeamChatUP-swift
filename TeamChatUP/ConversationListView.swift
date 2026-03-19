@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ConversationListView: View {
-    @StateObject private var conversationManager = ConversationManager.shared
+    @State private var conversationManager = ConversationManager.shared
     @State private var showNewConversation = false
     
     var body: some View {
