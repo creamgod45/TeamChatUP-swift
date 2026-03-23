@@ -114,6 +114,7 @@ final class WebSocketManager: NSObject {
     static let shared = WebSocketManager()
 
     var isConnected = false
+    var isConnecting = false
     var connectionError: String?
     private var pingTimer: Timer?
 
@@ -143,31 +144,39 @@ final class WebSocketManager: NSObject {
     // MARK: - Connection
 
     func connect(token: String? = nil) {
-        guard !isConnected else { return }
+        AppLogger.shared.debug("🔌 WebSocket connect() 被呼叫 (已連線: \(isConnected), 連線中: \(isConnecting))")
+        
+        guard !isConnected && !isConnecting else { 
+            AppLogger.shared.warning("⚠️ WebSocket 攔截重複連線請求 - 狀態: \(isConnected ? "已連線" : "連線中")")
+            return 
+        }
+        
+        isConnecting = true
+        connectionError = nil
         
         let activeToken = token ?? KeychainManager.shared.load()
 
         guard activeToken != nil else {
+            isConnecting = false
             connectionError = "未找到認證 token"
-            AppLogger.shared.error("WebSocket 連線失敗: 未找到 token")
+            AppLogger.shared.error("❌ WebSocket 連線失敗: 未找到 token")
             return
         }
 
         let config = AppConfig.reverbConfig
-
-        // Pusher WebSocket URL: wss://host:port/app/{key}
         let urlString = "\(config.useTLS ? "wss" : "ws")://\(config.host):\(config.port)/app/\(config.key)?protocol=7&client=pusher-swift&version=10.1.0"
 
         guard let url = URL(string: urlString) else {
+            isConnecting = false
             connectionError = "無效的 WebSocket URL"
-            AppLogger.shared.error("WebSocket URL 無效: \(urlString)")
+            AppLogger.shared.error("❌ WebSocket URL 無效: \(urlString)")
             return
         }
 
+        AppLogger.shared.info("🌐 [WebSocket] 開始建立新連線: \(config.host)")
+
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
-
-        AppLogger.shared.info("🌐 連接 WebSocket: \(urlString)")
 
         webSocketTask = urlSession?.webSocketTask(with: request)
         webSocketTask?.resume()
@@ -179,6 +188,7 @@ final class WebSocketManager: NSObject {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
+        isConnecting = false
         socketId = nil
         subscribedChannels.removeAll()
         reconnectTimer?.invalidate()
@@ -199,10 +209,15 @@ final class WebSocketManager: NSObject {
         }
 
         guard let socketId = socketId else {
-            AppLogger.shared.debug("Socket ID 尚未取得,加入待訂閱列表: \(conversationId)")
-            pendingSubscriptions.insert(conversationId)
+            if !pendingSubscriptions.contains(conversationId) {
+                AppLogger.shared.debug("Socket ID 尚未取得,加入待訂閱列表: \(conversationId)")
+                pendingSubscriptions.insert(conversationId)
+            }
             return
         }
+
+        // 確保不再待處理列表中
+        pendingSubscriptions.remove(conversationId)
 
         Task {
             do {
@@ -352,6 +367,7 @@ final class WebSocketManager: NSObject {
 
         self.socketId = socketId
         self.isConnected = true
+        self.isConnecting = false
         self.connectionError = nil
         self.reconnectAttempts = 0
 
@@ -448,6 +464,7 @@ final class WebSocketManager: NSObject {
     private func handleDisconnection() {
         stopHeartbeat()
         isConnected = false
+        isConnecting = false
         socketId = nil
         subscribedChannels.removeAll()
 
@@ -500,6 +517,8 @@ final class WebSocketManager: NSObject {
     private func startHeartbeat() {
         stopHeartbeat()
         
+        AppLogger.shared.debug("💓 WebSocket 心跳計時器啟動中...")
+        
         // Pusher protocol typical heartbeat interval is 30 seconds
         pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self = self else { return }
@@ -507,7 +526,6 @@ final class WebSocketManager: NSObject {
                 await self.sendPing()
             }
         }
-        AppLogger.shared.debug("💓 WebSocket 心跳計時器已啟動")
     }
 
     private func stopHeartbeat() {
@@ -544,7 +562,7 @@ extension WebSocketManager: URLSessionWebSocketDelegate {
         didOpenWithProtocol protocol: String?
     ) {
         Task { @MainActor in
-            self.isConnected = true
+            AppLogger.shared.debug("🌐 WebSocket 基礎連接已開啟，等待 Pusher 握手...")
             self.connectionError = nil
             self.reconnectAttempts = 0
         }

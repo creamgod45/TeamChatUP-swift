@@ -9,58 +9,79 @@ import SwiftUI
 
 struct ChatDetailView: View {
     let conversation: Conversation
-    @State private var messageManager: MessageManager
+    @State private var messageManager: MessageManager?
     @State private var messageText = ""
     @State private var showingError = false
     
     init(conversation: Conversation) {
         self.conversation = conversation
-        _messageManager = State(wrappedValue: MessageManager(conversationId: conversation.id))
+        // 延遲到 task/onAppear 初始化
     }
     
     var body: some View {
         VStack(spacing: 0) {
-            if messageManager.isLoading && messageManager.messages.isEmpty {
-                ProgressView("載入訊息中...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                messageListView
-            }
-            
-            if let typingText = messageManager.typingIndicatorText {
-                HStack {
-                    Text(typingText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .italic()
-                        .padding(.horizontal)
-                        .padding(.vertical, 4)
-                    Spacer()
+            // 訊息區域
+            Group {
+                if let messageManager = messageManager {
+                    if messageManager.isLoading && messageManager.messages.isEmpty {
+                        ProgressView("正在載入對話...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        messageListView(messageManager: messageManager)
+                    }
+                } else {
+                    // 尚未初始化時顯示空白對話區，保持佈局穩定
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             
-            Divider()
-            
-            messageInputView
+            // 輸入與狀態區域 (永遠顯示，提供穩定的 UI 回饋)
+            VStack(spacing: 0) {
+                if let messageManager = messageManager, let typingText = messageManager.typingIndicatorText {
+                    HStack {
+                        Text(typingText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .italic()
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                        Spacer()
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                
+                Divider()
+                
+                if let messageManager = messageManager {
+                    messageInputView(messageManager: messageManager)
+                } else {
+                    // 顯示一個已禁用的佔位輸入框
+                    placeholderInputView
+                }
+            }
         }
-        .animation(.default, value: messageManager.typingUsers)
+        .animation(.default, value: messageManager?.typingUsers)
         .navigationTitle(conversationTitle)
         .task {
-            await messageManager.loadMessages(refresh: true)
+            if messageManager == nil {
+                let manager = MessageManager(conversationId: conversation.id)
+                messageManager = manager
+                await manager.loadMessages(refresh: true)
+            }
             // 標記對話為已讀
             await markConversationAsRead()
         }
         .alert("錯誤", isPresented: $showingError) {
             Button("確定") {
-                messageManager.errorMessage = nil
+                messageManager?.errorMessage = nil
             }
         } message: {
-            if let error = messageManager.errorMessage {
+            if let error = messageManager?.errorMessage {
                 Text(error)
             }
         }
-        .onChange(of: messageManager.errorMessage) { _, newValue in
+        .onChange(of: messageManager?.errorMessage) { _, newValue in
             showingError = newValue != nil
         }
     }
@@ -76,7 +97,7 @@ struct ChatDetailView: View {
         }
     }
     
-    private var messageListView: some View {
+    private func messageListView(messageManager: MessageManager) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 12) {
@@ -114,7 +135,7 @@ struct ChatDetailView: View {
         }
     }
     
-    private var messageInputView: some View {
+    private func messageInputView(messageManager: MessageManager) -> some View {
         HStack(spacing: 12) {
             TextField("輸入訊息...", text: $messageText, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -130,19 +151,8 @@ struct ChatDetailView: View {
                     messageManager.sendTypingIndicator()
                 }
 
-            // 🔊 測試按鈕 - 用於診斷音效系統
             Button {
-                print("🔥 手動觸發音效測試")
-                SoundManager.shared.playTypingSound()
-            } label: {
-                Image(systemName: "speaker.wave.2.fill")
-                    .foregroundStyle(.orange)
-                    .padding(8)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                sendMessage()
+                sendMessage(messageManager: messageManager)
             } label: {
                 Image(systemName: "paperplane.fill")
                     .foregroundStyle(.white)
@@ -156,7 +166,7 @@ struct ChatDetailView: View {
         .padding()
     }
     
-    private func sendMessage() {
+    private func sendMessage(messageManager: MessageManager) {
         let content = messageText
         messageText = ""
 
@@ -164,14 +174,36 @@ struct ChatDetailView: View {
             await messageManager.sendMessage(content: content)
         }
     }
+    
+    // 🔗 佔位輸入框：在 MessageManager 初始化前顯示，保持視圖穩定
+    private var placeholderInputView: some View {
+        HStack(spacing: 12) {
+            TextField("正在準備中...", text: .constant(""))
+                .textFieldStyle(.plain)
+                .padding(8)
+                .disabled(true)
+#if os(macOS)
+                .background(Color(nsColor: .controlBackgroundColor))
+#else
+                .background(Color(.systemGray6))
+#endif
+                .clipShape(.rect(cornerRadius: 8))
+            
+            Button { } label: {
+                Image(systemName: "paperplane.fill")
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(Color.gray)
+                    .clipShape(.rect(cornerRadius: 8))
+            }
+            .disabled(true)
+        }
+        .padding()
+        .opacity(0.6)
+    }
 
     private func markConversationAsRead() async {
-        do {
-            try await APIClient.shared.markAsRead(conversationId: conversation.id)
-            AppLogger.shared.debug("✅ 對話已標記為已讀 - ID: \(conversation.id)")
-        } catch {
-            AppLogger.shared.error("❌ 標記對話為已讀失敗: \(error)")
-        }
+        await ConversationManager.shared.markAsRead(conversationId: conversation.id)
     }
 }
 

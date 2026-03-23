@@ -214,9 +214,6 @@ final class PKCEAuthManager {
             self.isAuthenticated = true
             self.currentUser = response.user
             
-            // 立即啟動 WebSocket 連線
-            WebSocketManager.shared.connect(token: response.accessToken)
-            
             AppLogger.shared.info("✅ Token 已儲存，使用者已登入")
             
         } catch {

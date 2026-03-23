@@ -21,8 +21,10 @@ struct TeamChatUPApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .handlesExternalEvents(preferring: ["teamchatup"], allowing: ["teamchatup"])
         }
         .modelContainer(sharedModelContainer)
+        .handlesExternalEvents(matching: ["teamchatup"])
     }
 }
 

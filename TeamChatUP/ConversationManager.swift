@@ -71,16 +71,27 @@ final class ConversationManager {
     }
     
     func loadConversations(refresh: Bool = false) async {
-        guard !isLoading else { return }
+        AppLogger.shared.debug("📥 loadConversations(refresh: \(refresh)) 被呼叫 (isLoading: \(isLoading), isRefreshing: \(isRefreshing))")
         
         if refresh {
+            guard !isRefreshing else { 
+                AppLogger.shared.warning("⚠️ 攔截重複的 refresh 請求")
+                return 
+            }
             isRefreshing = true
             currentPage = 1
             hasMorePages = true
+        } else {
+            guard !isLoading else { 
+                AppLogger.shared.warning("⚠️ 攔截重複的 load 請求")
+                return 
+            }
         }
         
         isLoading = true
         errorMessage = nil
+        
+        AppLogger.shared.info("📡 [ConversationManager] 開始從伺服器載入對話 (頁數: \(currentPage))")
         
         do {
             let response = try await APIClient.shared.getConversations(
@@ -137,13 +148,24 @@ final class ConversationManager {
             try await APIClient.shared.markAsRead(conversationId: conversationId)
             
             // 更新本地未讀數量為 0
-            // Note: 由於 Conversation 是 struct，需要重新建立來更新
-            // 這裡暫時不做處理，等待 WebSocket 更新或下次刷新
-            if conversations.contains(where: { $0.id == conversationId }) {
-                // 標記已讀成功，等待下次刷新更新 UI
+            if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+                let oldConv = conversations[index]
+                if oldConv.unreadCount > 0 {
+                    let updatedConv = Conversation(
+                        id: oldConv.id,
+                        name: oldConv.name,
+                        type: oldConv.type,
+                        participants: oldConv.participants,
+                        lastMessage: oldConv.lastMessage,
+                        unreadCount: 0,
+                        createdAt: oldConv.createdAt
+                    )
+                    conversations[index] = updatedConv
+                    AppLogger.shared.debug("✅ 已將本地對話標記為已讀: \(conversationId)")
+                }
             }
         } catch {
-            // 靜默失敗，不影響 UI
+            AppLogger.shared.error("❌ 標記對話為已讀失敗: \(error)")
         }
     }
     

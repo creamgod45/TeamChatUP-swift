@@ -34,8 +34,11 @@ final class MessageManager {
     
     private var conversationId: Int
     private var messageIds = Set<Int>()
-    private var typingTimer: Timer?
-    private var cancellables = Set<AnyCancellable>()
+    
+    // ✅ 使用 @ObservationIgnored 避開宏包裝，並用 nonisolated(unsafe) 允許在 deinit 存取
+    @ObservationIgnored nonisolated(unsafe) private var typingTimer: Timer?
+    @ObservationIgnored nonisolated(unsafe) private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored nonisolated(unsafe) private var statusCleanupTimer: Timer?
     
     // 記錄每個使用者上次播放輸入音效的時間，用於冷卻重複播放
     private var lastTypingSoundTime: [Int: Date] = [:]
@@ -43,8 +46,6 @@ final class MessageManager {
     private var lastTypingEventTime: [Int: Date] = [:]
     // 記錄每個使用者上次收到訊息的時間，用於避免訊息與輸入音效重疊
     private var lastMessageReceivedTime: [Int: Date] = [:]
-    // 定期清理超時輸入狀態的計時器
-    private var statusCleanupTimer: Timer?
     
     init(conversationId: Int) {
         self.conversationId = conversationId
@@ -53,6 +54,13 @@ final class MessageManager {
         
         // 訂閱對話頻道以接收即時訊息
         WebSocketManager.shared.subscribeToConversation(conversationId)
+    }
+    
+    nonisolated deinit {
+        statusCleanupTimer?.invalidate()
+        typingTimer?.invalidate()
+        // 注意：cancellables 是 Set<AnyCancellable>，在 deinit 中移除會自動取消訂閱
+        // 但因為是 nonisolated，所以必須確保它本身也是 nonisolated 屬性
     }
     
     private func startStatusCleanupTimer() {
@@ -89,7 +97,9 @@ final class MessageManager {
         WebSocketManager.shared.eventPublisher
             .sink { [weak self] (event: WebSocketEvent) in
                 guard let self = self else { return }
-                self.handleWebSocketEvent(event)
+                Task { @MainActor in
+                    self.handleWebSocketEvent(event)
+                }
             }
             .store(in: &cancellables)
     }
@@ -175,7 +185,7 @@ final class MessageManager {
             let response = try await APIClient.shared.getMessages(
                 conversationId: conversationId,
                 page: currentPage,
-                perPage: 50
+                perPage: 20
             )
             
             let newMessages = response.data.filter { !messageIds.contains($0.id) }
@@ -191,7 +201,7 @@ final class MessageManager {
             
             newMessages.forEach { messageIds.insert($0.id) }
             
-            hasMorePages = response.data.count >= 50
+            hasMorePages = response.data.count >= 20
             currentPage += 1
             
         } catch {
