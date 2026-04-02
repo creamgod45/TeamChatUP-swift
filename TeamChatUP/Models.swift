@@ -327,27 +327,50 @@ struct Device: Codable, Identifiable {
     }
 }
 
+// MARK: - SSL Certificate Bypass Delegate (Development Only)
+
+final class SSLBypassDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        // Only bypass SSL for development domain
+        if challenge.protectionSpace.host == "teamchatup-backend.test" {
+            AppLogger.shared.warning("⚠️ 繞過 SSL 憑證驗證 (僅限開發環境): \(challenge.protectionSpace.host)")
+            let credential = URLCredential(trust: challenge.protectionSpace.serverTrust!)
+            completionHandler(.useCredential, credential)
+        } else {
+            // For all other domains, use default handling
+            completionHandler(.performDefaultHandling, nil)
+        }
+    }
+}
+
 // MARK: - API Client
 
 final class APIClient {
     static let shared = APIClient()
-    
+
     private let baseURL: String
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
-    
+    private let urlSession: URLSession
+
     private init() {
         self.baseURL = AppConfig.apiBaseURL
-        
+
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
-        
+
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
-        
+
+        // Create custom URLSession with SSL bypass delegate for development
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 60
+        self.urlSession = URLSession(configuration: configuration, delegate: SSLBypassDelegate(), delegateQueue: nil)
+
         AppLogger.shared.info("APIClient 初始化完成，Base URL: \(baseURL)")
     }
-    
+
     private var token: String? {
         KeychainManager.shared.load()
     }
@@ -541,7 +564,7 @@ final class APIClient {
         AppLogger.shared.logRequest(request, startTime: startTime)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await urlSession.data(for: request)
             let duration = Date().timeIntervalSince(startTime)
 
             guard let httpResponse = response as? HTTPURLResponse else {
